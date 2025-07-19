@@ -13,7 +13,7 @@ WORKDIR /src
 # 初始化 Go 模块并下载 derper 源代码。
 # `go get` 会将源代码和依赖项下载到模块缓存中。
 RUN go mod init builder && \
-    go get tailscale.com/cmd/derper@latest
+    go get tailscale.com/cmd/derper@main
 
 # --- 核心编译步骤 ---
 # 使用 `CGO_ENABLED=0` 来构建一个完全静态链接的二进制文件。
