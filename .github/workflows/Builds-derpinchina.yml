@@ -1,0 +1,226 @@
+name: 自动构建:derpin-china
+
+on:
+  schedule:
+    # 每周一 00:00 UTC 执行
+    - cron: '0 0 * * *'
+  # 当PR合并到主线时自动执行构建
+  pull_request:
+    types: [ closed ]
+    branches: [ main ]
+  # 手动触发
+  workflow_dispatch:
+
+# 权限配置：仅授予GHCR推送必需的最小权限
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-24.04
+
+    steps:
+      # 检出代码
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 安装必要依赖
+      - name: Install dependencies
+        run: |
+          sudo apt update && sudo apt install -y curl jq
+          # 验证docker是否已安装（ubuntu-24.04 runner默认带docker）
+          docker --version
+      
+      # 将仓库所有者转为小写，并定义IMAGE_NAME
+      - name: Define lowercase IMAGE_NAME
+        run: |
+          # 把github.repository_owner转为纯小写，避免大写导致的镜像名称错误
+          REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_NAME=${REPO_OWNER_LOWER}/derpin-china" >> $GITHUB_ENV
+          echo "Lowercase image name: ghcr.io/${REPO_OWNER_LOWER}/derpin-china"
+
+      # 生成当日时间标签（格式：年月日，如20260102）
+      #- name: Generate date-based tag
+          # 使用UTC时间生成标签
+      #    TAG_DATE="$(date -u +%Y%m%d)"
+      #    echo "Date tag: $TAG_DATE"
+      #    echo "TAG_DATE=$TAG_DATE" >> $GITHUB_ENV
+
+      # 生成包含日期和PR信息的标签
+      - name: Generate tag with date and PR info
+        run: |
+          # 基础日期标签（格式：年月日，如20260102）
+          BASE_TAG=$(date -u +%Y%m%d)
+          
+          #if [ "${{ github.event_name }}" = "push" ]; then
+          #  # 对于push事件，使用commit哈希的前7位
+          #  COMMIT_HASH=${{ github.sha }}
+          #  SHORT_HASH=${COMMIT_HASH:0:7}
+          #  TAG_SUFFIX="-$SHORT_HASH"
+          #elif [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ github.event.action }}" = "closed" ] && [ "${{ github.event.pull_request.merged }}" = "true" ]; then
+
+          # 检查事件类型并生成相应的标签后缀
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ github.event.action }}" = "closed" ] && [ "${{ github.event.pull_request.merged }}" = "true" ]; then
+            # 对于合并的PR事件，使用PR编号
+            PR_NUMBER=${{ github.event.pull_request.number }}
+            TAG_SUFFIX="-pr$PR_NUMBER"
+          else
+            # 默认情况（如手动触发、定时任务等），使用时间戳避免重复
+            TIMESTAMP=$(date -u +%H%M%S)
+            TAG_SUFFIX="-$TIMESTAMP"
+          fi
+          
+          # 组合最终标签
+          FINAL_TAG="$BASE_TAG$TAG_SUFFIX"
+          echo "Generated tag: $FINAL_TAG"
+          echo "TAG_DATE=$FINAL_TAG" >> $GITHUB_ENV
+
+      # 登录GHCR（仅推送到GHCR，无需DockerHub）
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 构建镜像（临时标签derpinchina:latest）
+      - name: Build Docker image
+        run: |
+          docker build . \
+            -t derpinchina:latest
+
+      # 验证Tailscale和Derper版本安装情况
+      - name: Verify Tailscale and Derper versions in image
+        id: verify_versions
+        run: |
+          echo "=== Starting version verification ==="
+          # 1. 启动临时容器
+          CONTAINER_ID=$(docker run -d --rm --entrypoint sh derpinchina:latest -c "sleep 30")
+          
+          # 2. 提取镜像内安装的Tailscale版本
+          TS_VERSION=$(docker exec $CONTAINER_ID tailscale --version 2>/dev/null | grep -Eo 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          
+          # 3. 提取镜像内安装的Derper版本
+          DERP_VERSION=$(docker exec $CONTAINER_ID derper --version 2>/dev/null | grep -Eo 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          
+          # 4. 停止临时容器
+          docker stop $CONTAINER_ID >/dev/null 2>&1
+          
+          # 5. 保存版本信息到环境变量
+          echo "TS_VERSION=$TS_VERSION" >> $GITHUB_ENV
+          echo "DERP_VERSION=$DERP_VERSION" >> $GITHUB_ENV
+          
+          # 6. 打印版本信息
+          echo "Installed Tailscale version: $TS_VERSION"
+          echo "Installed Derper version: $DERP_VERSION"
+          
+          # 7. 验证版本格式
+          if [[ -z $TS_VERSION || -z $DERP_VERSION ]]; then
+            echo "ERROR: Failed to retrieve version information!"
+            exit 1
+          else
+            echo "SUCCESS: Version verification completed!"
+          fi
+
+      # GHCR镜像标签
+      - name: Tag image for GHCR
+        run: |
+          # 混合标签
+          docker tag derpinchina:latest ghcr.io/${{ env.IMAGE_NAME }}:${{ env.TAG_DATE }}
+          # latest标签
+          docker tag derpinchina:latest ghcr.io/${{ env.IMAGE_NAME }}:latest
+
+      # 推送镜像到GHCR
+      - name: Push image to GHCR
+        run: |
+          docker push ghcr.io/${{ env.IMAGE_NAME }}:${{ env.TAG_DATE }}
+          docker push ghcr.io/${{ env.IMAGE_NAME }}:latest
+
+      # 登出GHCR
+      - name: Logout from GHCR
+        if: always()  # 无论前面步骤是否失败，都执行登出
+        run: docker logout ghcr.io
+
+      # 构建结果摘要
+      - name: Build summary
+        if: always()  # 无论前面步骤是否失败，都输出摘要
+        run: |
+          echo "========================================"
+          echo "📦 Docker Image Build Summary"
+          echo "========================================"
+          echo "✅ Build completed with status: ${{ job.status }}"
+          echo ""
+          echo "📋 Component Versions:"
+          echo "- Tailscale: ${{ env.TS_VERSION || 'Not available' }}"
+          echo "- Derper: ${{ env.DERP_VERSION || 'Not available' }}"
+          echo ""
+          echo "🐳 Container Information:"
+          echo "- Registry: ghcr.io"
+          echo "- Image Name: ${{ env.IMAGE_NAME }}"
+          echo "- Tags: ${{ env.TAG_DATE }}, latest"
+          echo "- Full Image Path: ghcr.io/${{ env.IMAGE_NAME }}:${{ env.TAG_DATE }}"
+          echo ""
+          echo "📤 Push Status:"
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ Images pushed successfully to GHCR"
+            echo "- Tagged image: ghcr.io/${{ env.IMAGE_NAME }}:${{ env.TAG_DATE }}"
+            echo "- Latest image: ghcr.io/${{ env.IMAGE_NAME }}:latest"
+          else
+            echo "❌ Image push failed or was skipped"
+          fi
+          echo ""
+          echo "📅 Build Details:"
+          echo "- Build ID: ${{ github.run_id }}"
+          echo "- Build URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "- Trigger: ${{ github.event_name }}"
+          echo "- Branch: ${{ github.ref_name }}"
+          echo "======================================="
+          
+          # 添加GitHub Actions UI作业摘要
+          echo "## Docker镜像构建结果\n" >> $GITHUB_STEP_SUMMARY
+          
+          # 构建状态
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ **构建状态**: 成功" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **构建状态**: 失败" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # 组件版本信息
+          echo "### 📋 组件版本" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tailscale**: ${{ env.TS_VERSION || '不可用' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Derper**: ${{ env.DERP_VERSION || '不可用' }}" >> $GITHUB_STEP_SUMMARY
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # 容器信息
+          echo "### 🐳 容器信息" >> $GITHUB_STEP_SUMMARY
+          echo "- **仓库**: ghcr.io" >> $GITHUB_STEP_SUMMARY
+          echo "- **镜像名称**: ${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **标签**: ${{ env.TAG_DATE }}, latest" >> $GITHUB_STEP_SUMMARY
+          echo "- **完整镜像路径**: ghcr.io/${{ env.IMAGE_NAME }}:${{ env.TAG_DATE }}" >> $GITHUB_STEP_SUMMARY
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # 推送状态
+          echo "### 📤 推送状态" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ 镜像已成功推送到GHCR" >> $GITHUB_STEP_SUMMARY
+            echo "- 版本标签: ghcr.io/${{ env.IMAGE_NAME }}:${{ env.TAG_DATE }}" >> $GITHUB_STEP_SUMMARY
+            echo "- 最新标签: ghcr.io/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ 镜像推送失败或被跳过" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # 构建详情
+          echo "### 📅 构建详情" >> $GITHUB_STEP_SUMMARY
+          echo "- **构建ID**: ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **构建链接**: [查看构建](${github.server_url}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+          echo "- **触发方式**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **分支**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **构建时间**: $(date)" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,132 @@
+name: 自动构建:derpin-china-new
+
+on:
+  schedule:
+    # 每周一 00:00 UTC 执行
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+# 权限配置：仅授予GHCR推送必需的最小权限
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-24.04
+    env:
+      # 目标仓库地址
+      TARGET_REPO: https://github.com/lansepeach/Derp-China-new.git
+
+    steps:
+      # 安装必要依赖（git用于克隆仓库）
+      - name: Install dependencies
+        run: |
+          sudo apt update && sudo apt install -y git
+          # 验证docker是否已安装
+          docker --version
+      
+      # 定义镜像名称（确保格式正确）
+      - name: Define image name
+        run: |
+          # 把github.repository_owner转为纯小写，避免大写导致的镜像名称错误
+          REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_NAME=${REPO_OWNER_LOWER}/lansepeach/derpin-china-new" >> $GITHUB_ENV
+          echo "Lowercase image name: ghcr.io/${REPO_OWNER_LOWER}/lansepeach/derpin-china-new"
+
+      # 生成日期标签（格式：年月日）
+      - name: Generate date-based tag
+        run: |
+          # 使用UTC时间
+          TAG_DATE="$(date -u +%Y%m%d)"
+          echo "Date tag: $TAG_DATE"
+          echo "TAG_DATE=$TAG_DATE" >> $GITHUB_ENV
+
+      # 登录GHCR
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 步骤5：克隆目标仓库
+      - name: Clone Derp-China-new repository
+        run: |
+          git clone ${{ env.TARGET_REPO }}
+          cd Derp-China-new
+
+      # 构建Docker镜像
+      - name: Build Docker image
+        run: |
+          cd Derp-China-new
+          docker build . \
+            -t derpinchina:latest
+
+      # 为镜像打标签（日期标签 + latest标签）
+      - name: Tag image for GHCR
+        run: |
+          # 打日期标签
+          docker tag derpinchina:latest ghcr.io/${{ env.IMAGE_NAME }}:${{ env.TAG_DATE }}
+          # 打latest标签
+          docker tag derpinchina:latest ghcr.io/${{ env.IMAGE_NAME }}:latest
+          # 输出所有标签
+          docker images | grep ${{ env.IMAGE_NAME }}
+
+      # 推送镜像到GHCR
+      - name: Push image to GHCR
+        run: |
+          # 推送日期标签
+          docker push ghcr.io/${{ env.IMAGE_NAME }}:${{ env.TAG_DATE }}
+          # 推送latest标签
+          docker push ghcr.io/${{ env.IMAGE_NAME }}:latest
+
+      # 登出GHCR
+      - name: Logout from GHCR
+        if: always()  # 无论前面步骤是否失败，都执行登出
+        run: docker logout ghcr.io
+
+      # 构建结果摘要
+      - name: Build summary
+        if: always()  # 无论前面步骤是否失败，都输出摘要
+        run: |
+          echo "========================================"
+          echo "📦 Docker Image Build Summary"
+          echo "========================================"
+          echo "✅ Build completed with status: ${{ job.status }}"
+          echo ""
+          echo "🐳 Container Information:"
+          echo "- Registry: ghcr.io"
+          echo "- Image Name: ${{ env.IMAGE_NAME }}"
+          echo "- Tags: ${{ env.TAG_DATE }}, latest"
+          echo "- Full Image Path: ghcr.io/${{ env.IMAGE_NAME }}:${{ env.TAG_DATE }}"
+          echo ""
+          echo "🔧 Build Details:"
+          echo "- Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "- Trigger: ${{ github.event_name }}"
+          echo "- Branch: ${{ github.ref_name }}"
+          echo "- Commit: ${{ github.sha }}"
+          echo "- Runner: ${{ runner.os }} ${{ runner.name }}"
+          echo ""
+          echo "========================================"
+          # 设置作业摘要
+          echo "## Docker镜像构建结果" >> $GITHUB_STEP_SUMMARY
+          # 构建状态（使用图标）
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ **构建状态**: 成功" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **构建状态**: 失败" >> $GITHUB_STEP_SUMMARY
+          fi
+          # 镜像信息
+          echo "### 🐳 镜像信息" >> $GITHUB_STEP_SUMMARY
+          echo "- **仓库地址**: ghcr.io" >> $GITHUB_STEP_SUMMARY
+          echo "- **镜像名称**: ${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **镜像标签**: ${{ env.TAG_DATE }}, latest" >> $GITHUB_STEP_SUMMARY
+          echo "- **完整镜像路径**: ghcr.io/${{ env.IMAGE_NAME }}:${{ env.TAG_DATE }}" >> $GITHUB_STEP_SUMMARY
+          # 构建触发信息
+          echo "### 🔧 构建详情" >> $GITHUB_STEP_SUMMARY
+          echo "- **触发方式**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **工作流运行**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **分支**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **构建时间**: $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "- **运行环境**: ${{ runner.os }} ${{ runner.name }}" >> $GITHUB_STEP_SUMMARY
