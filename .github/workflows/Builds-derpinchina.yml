@@ -24,6 +24,10 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
+      # 步骤0：检出代码
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       # 步骤1：安装必要依赖
       - name: Install dependencies
         run: |
