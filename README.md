@@ -12,19 +12,19 @@
 实验性项目，用来玩 Actions 的，虽然最后是玩 AI（笑  
 暂时不建议用 `neanc/derpin-china`，打包出来的镜像大了一倍，对小水管来说要命。  
 当然你要用我也没法拦你，毕竟这个镜像目测来看不需要折腾一堆太多，填个 KEY，做个反代，拉起容器，最后在后台填下配置完事了。  
-比较适合不在服务器上用 Tailscale，只是打算做纯 derp 且需要用域名的需求。
+比较适合不在服务器上用 Tailscale，只是打算做 derp 且需要用域名的需求。
+
+---
+
+## 镜像说明与版本说明
 
 修改了 `Dockerfile` 所使用的系统，用于追踪最新的 Tailscale ，缺点是镜像大小会增加。  
 将 @main 替换为 @latest ，以获取对应 Tailscale 的 derper 版本。
 
----
-
-## 版本对比
-
-| 镜像                                               | 基于   | 大小     | 说明                             |
-| -------------------------------------------------- | ------ | -------- | -------------------------------- |
-| `ghcr.io/neanc/lansepeach/derpin-china-new:latest` | Alpine | ≈ 70 MB  | Tailscale 版本较旧               |
-| `ghcr.io/neanc/derpin-china:latest`                | Debian | ≈ 175 MB | 用于实时追踪最新版本的 Tailscale |
+| 镜像名                        | 标签格式               | 基于   | 大小     | 说明                                                                               |
+| ----------------------------- | ---------------------- | ------ | -------- | ---------------------------------------------------------------------------------- |
+| `lansepeach/derpin-china-new` | 构建时的 年月日        | Alpine | ≈ 70 MB  | 基于[lansepeach/Derp-China-new](https://github.com/lansepeach/Derp-China-new) 构建 |
+| `neanc/derpin-china`          | 构建时的 年月日-时间戳 | Debian | ≈ 175 MB | 本库构建，用于实时追踪最新版本的 Tailscale                                         |
 
 ---
 
@@ -75,8 +75,7 @@ tailscale up --auth-key="你的key"
 
 ### 部署容器
 
-> [!NOTE] 
-> `docker-compose.yml` 中使用的镜像为 `ghcr.io/neanc/lansepeach/derpin-china-new:latest`，  
+> [!NOTE] > `docker-compose.yml` 中使用的镜像为 `ghcr.io/neanc/lansepeach/derpin-china-new:latest`，  
 > 若需要使用 `ghcr.io/neanc/derpin-china:latest`，请自行修改。
 
 > [!IMPORTANT]
