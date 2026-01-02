@@ -109,9 +109,24 @@ jobs:
           echo "- Runner: ${{ runner.os }} ${{ runner.name }}"
           echo ""
           echo "========================================"
-          # 设置作业摘要（GitHub Actions UI中显示）
-          echo "## Docker镜像构建结果\n" >> $GITHUB_STEP_SUMMARY
-          echo "- **构建状态**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **镜像名称**: ghcr.io/${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **标签**: ${{ env.TAG_DATE }}, latest" >> $GITHUB_STEP_SUMMARY
+          # 设置作业摘要
+          echo "## Docker镜像构建结果" >> $GITHUB_STEP_SUMMARY
+          # 构建状态（使用图标）
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ **构建状态**: 成功" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **构建状态**: 失败" >> $GITHUB_STEP_SUMMARY
+          fi
+          # 镜像信息
+          echo "### 🐳 镜像信息" >> $GITHUB_STEP_SUMMARY
+          echo "- **仓库地址**: ghcr.io" >> $GITHUB_STEP_SUMMARY
+          echo "- **镜像名称**: ${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **镜像标签**: ${{ env.TAG_DATE }}, latest" >> $GITHUB_STEP_SUMMARY
+          echo "- **完整镜像路径**: ghcr.io/${{ env.IMAGE_NAME }}:${{ env.TAG_DATE }}" >> $GITHUB_STEP_SUMMARY
+          # 构建触发信息
+          echo "### 🔧 构建详情" >> $GITHUB_STEP_SUMMARY
+          echo "- **触发方式**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **工作流运行**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **分支**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
           echo "- **构建时间**: $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "- **运行环境**: ${{ runner.os }} ${{ runner.name }}" >> $GITHUB_STEP_SUMMARY

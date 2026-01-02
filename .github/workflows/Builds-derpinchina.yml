@@ -40,29 +40,6 @@ jobs:
           echo "IMAGE_NAME=${REPO_OWNER_LOWER}/derpin-china" >> $GITHUB_ENV
           echo "Lowercase image name: ghcr.io/${REPO_OWNER_LOWER}/derpin-china"
 
-      # 获取Tailscale最新版本（当前已临时屏蔽，Dockerfile中直接安装最新版本）
-      # - name: Get latest Tailscale version
-      #   id: get_tailscale
-      #   run: |
-      #     # 调用GitHub API，添加token避免速率限制
-      #     TAILSCALE_VERSION=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-      #       https://api.github.com/repos/tailscale/tailscale/releases/latest | jq -r '.tag_name')
-      #     
-      #     # 非空校验：获取失败则终止流程
-      #     if [ -z "$TAILSCALE_VERSION" ] || [ "$TAILSCALE_VERSION" = "null" ]; then
-      #       echo "Error: Failed to get latest Tailscale version"
-      #       exit 1
-      #     fi
-      #     # 统一版本格式（确保带v前缀，方便后续对比）
-      #     if [[ ! $TAILSCALE_VERSION =~ ^v ]]; then
-      #       TAILSCALE_VERSION="v$TAILSCALE_VERSION"
-      #     fi
-      #     
-      #     echo "Latest Tailscale version: $TAILSCALE_VERSION"
-      #     echo "TAILSCALE_VERSION=$TAILSCALE_VERSION" >> $GITHUB_ENV
-      #     # 同时输出无v前缀的版本（兼容部分镜像内的版本格式）
-      #     echo "TAILSCALE_VERSION_NO_V=${TAILSCALE_VERSION#v}" >> $GITHUB_ENV
-
       # 生成当日时间标签（格式：年月日，如20260102）
       #- name: Generate date-based tag
           # 使用UTC时间生成标签
@@ -70,24 +47,26 @@ jobs:
       #    echo "Date tag: $TAG_DATE"
       #    echo "TAG_DATE=$TAG_DATE" >> $GITHUB_ENV
 
-      # 生成包含日期和commit/PR信息的标签
-      - name: Generate tag with date and commit/PR info
+      # 生成包含日期和PR信息的标签
+      - name: Generate tag with date and PR info
         run: |
           # 基础日期标签（格式：年月日，如20260102）
           BASE_TAG=$(date -u +%Y%m%d)
           
+          #if [ "${{ github.event_name }}" = "push" ]; then
+          #  # 对于push事件，使用commit哈希的前7位
+          #  COMMIT_HASH=${{ github.sha }}
+          #  SHORT_HASH=${COMMIT_HASH:0:7}
+          #  TAG_SUFFIX="-$SHORT_HASH"
+          #elif [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ github.event.action }}" = "closed" ] && [ "${{ github.event.pull_request.merged }}" = "true" ]; then
+
           # 检查事件类型并生成相应的标签后缀
-          if [ "${{ github.event_name }}" = "push" ]; then
-            # 对于push事件，使用commit哈希的前7位
-            COMMIT_HASH=${{ github.sha }}
-            SHORT_HASH=${COMMIT_HASH:0:7}
-            TAG_SUFFIX="-$SHORT_HASH"
-          elif [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ github.event.action }}" = "closed" ] && [ "${{ github.event.pull_request.merged }}" = "true" ]; then
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ github.event.action }}" = "closed" ] && [ "${{ github.event.pull_request.merged }}" = "true" ]; then
             # 对于合并的PR事件，使用PR编号
             PR_NUMBER=${{ github.event.pull_request.number }}
             TAG_SUFFIX="-pr$PR_NUMBER"
           else
-            # 其他情况（如手动触发），使用时间戳避免重复
+            # 默认情况（如手动触发、定时任务等），使用时间戳避免重复
             TIMESTAMP=$(date -u +%H%M%S)
             TAG_SUFFIX="-$TIMESTAMP"
           fi
@@ -109,9 +88,7 @@ jobs:
       - name: Build Docker image
         run: |
           docker build . \
-            -t derpinchina:latest 
-            # 临时屏蔽传递最新Tailscale版本，Dockerfile中直接安装最新版本
-            # --build-arg DERP_VERSION=${{ env.TAILSCALE_VERSION }}
+            -t derpinchina:latest
 
       # 验证Tailscale和Derper版本安装情况
       - name: Verify Tailscale and Derper versions in image
@@ -146,12 +123,12 @@ jobs:
             echo "SUCCESS: Version verification completed!"
           fi
 
-      # 打GHCR镜像标签（当日时间标签 + latest标签）
+      # GHCR镜像标签
       - name: Tag image for GHCR
         run: |
-          # 打当日时间标签
+          # 混合标签
           docker tag derpinchina:latest ghcr.io/${{ env.IMAGE_NAME }}:${{ env.TAG_DATE }}
-          # 打latest标签
+          # latest标签
           docker tag derpinchina:latest ghcr.io/${{ env.IMAGE_NAME }}:latest
 
       # 推送镜像到GHCR
@@ -160,7 +137,7 @@ jobs:
           docker push ghcr.io/${{ env.IMAGE_NAME }}:${{ env.TAG_DATE }}
           docker push ghcr.io/${{ env.IMAGE_NAME }}:latest
 
-      # 登出GHCR（安全最佳实践，清理会话）
+      # 登出GHCR
       - name: Logout from GHCR
         if: always()  # 无论前面步骤是否失败，都执行登出
         run: docker logout ghcr.io
@@ -198,4 +175,52 @@ jobs:
           echo "- Build URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           echo "- Trigger: ${{ github.event_name }}"
           echo "- Branch: ${{ github.ref_name }}"
-          echo "========================================"
+          echo "======================================="
+          
+          # 添加GitHub Actions UI作业摘要
+          echo "## Docker镜像构建结果\n" >> $GITHUB_STEP_SUMMARY
+          
+          # 构建状态
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ **构建状态**: 成功" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **构建状态**: 失败" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # 组件版本信息
+          echo "### 📋 组件版本" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tailscale**: ${{ env.TS_VERSION || '不可用' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Derper**: ${{ env.DERP_VERSION || '不可用' }}" >> $GITHUB_STEP_SUMMARY
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # 容器信息
+          echo "### 🐳 容器信息" >> $GITHUB_STEP_SUMMARY
+          echo "- **仓库**: ghcr.io" >> $GITHUB_STEP_SUMMARY
+          echo "- **镜像名称**: ${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **标签**: ${{ env.TAG_DATE }}, latest" >> $GITHUB_STEP_SUMMARY
+          echo "- **完整镜像路径**: ghcr.io/${{ env.IMAGE_NAME }}:${{ env.TAG_DATE }}" >> $GITHUB_STEP_SUMMARY
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # 推送状态
+          echo "### 📤 推送状态" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ 镜像已成功推送到GHCR" >> $GITHUB_STEP_SUMMARY
+            echo "- 版本标签: ghcr.io/${{ env.IMAGE_NAME }}:${{ env.TAG_DATE }}" >> $GITHUB_STEP_SUMMARY
+            echo "- 最新标签: ghcr.io/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ 镜像推送失败或被跳过" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # 构建详情
+          echo "### 📅 构建详情" >> $GITHUB_STEP_SUMMARY
+          echo "- **构建ID**: ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **构建链接**: [查看构建](${github.server_url}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+          echo "- **触发方式**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **分支**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **构建时间**: $(date)" >> $GITHUB_STEP_SUMMARY
