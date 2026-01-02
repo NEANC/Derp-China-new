@@ -13,7 +13,7 @@ RUN CGO_ENABLED=0 go build -o /derper tailscale.com/cmd/derper
 
 
 # ---- STAGE 2: The Final Image ----
-FROM debian:slim
+FROM debian:bookworm-slim
 
 # 安装运行时依赖
 # ca-certificates 对于 derper 进行 TLS 通信至关重要
