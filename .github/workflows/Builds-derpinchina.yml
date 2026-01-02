@@ -24,11 +24,11 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      # 步骤0：检出代码
+      # 检出代码
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 步骤1：安装必要依赖
+      # 安装必要依赖
       - name: Install dependencies
         run: |
           sudo apt update && sudo apt install -y curl jq
@@ -43,7 +43,7 @@ jobs:
           echo "IMAGE_NAME=${REPO_OWNER_LOWER}/derpin-china" >> $GITHUB_ENV
           echo "Lowercase image name: ghcr.io/${REPO_OWNER_LOWER}/derpin-china"
 
-      # 步骤2：获取Tailscale最新版本（当前已临时屏蔽，Dockerfile中直接安装最新版本）
+      # 获取Tailscale最新版本（当前已临时屏蔽，Dockerfile中直接安装最新版本）
       # - name: Get latest Tailscale version
       #   id: get_tailscale
       #   run: |
@@ -66,14 +66,14 @@ jobs:
       #     # 同时输出无v前缀的版本（兼容部分镜像内的版本格式）
       #     echo "TAILSCALE_VERSION_NO_V=${TAILSCALE_VERSION#v}" >> $GITHUB_ENV
 
-      # 步骤3：生成当日时间标签（格式：年月日，如20260102）
+      # 生成当日时间标签（格式：年月日，如20260102）
       #- name: Generate date-based tag
           # 使用UTC时间生成标签
       #    TAG_DATE="$(date -u +%Y%m%d)"
       #    echo "Date tag: $TAG_DATE"
       #    echo "TAG_DATE=$TAG_DATE" >> $GITHUB_ENV
 
-      # 步骤3：生成包含日期和commit/PR信息的标签
+      # 生成包含日期和commit/PR信息的标签
       - name: Generate tag with date and commit/PR info
         run: |
           # 基础日期标签（格式：年月日，如20260102）
@@ -100,7 +100,7 @@ jobs:
           echo "Generated tag: $FINAL_TAG"
           echo "TAG_DATE=$FINAL_TAG" >> $GITHUB_ENV
 
-      # 步骤4：登录GHCR（仅推送到GHCR，无需DockerHub）
+      # 登录GHCR（仅推送到GHCR，无需DockerHub）
       - name: Login to GHCR
         uses: docker/login-action@v3
         with:
@@ -108,7 +108,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 步骤5：构建镜像（临时标签derpinchina:latest）
+      # 构建镜像（临时标签derpinchina:latest）
       - name: Build Docker image
         run: |
           docker build . \
@@ -116,30 +116,40 @@ jobs:
             # 临时屏蔽传递最新Tailscale版本，Dockerfile中直接安装最新版本
             # --build-arg DERP_VERSION=${{ env.TAILSCALE_VERSION }}
 
-      # 暂时注释版本验证步骤（由于已屏蔽获取最新版本的步骤）
-      # - name: Verify Tailscale version in image
-      #   run: |
-      #     echo "=== Starting version verification ==="
-      #     # 1. 启动临时容器（--rm 退出后自动删除，--entrypoint sh 确保能执行命令）
-      #     CONTAINER_ID=$(docker run -d --rm --entrypoint sh derpinchina:latest -c "sleep 30")
-      #     
-      #     # 2. 提取镜像内Tailscale版本（兼容两种格式：带v/不带v）
-      #     IMAGE_TS_VERSION=$(docker exec $CONTAINER_ID sh -c "tailscale --version 2>/dev/null || derper --version" | grep -Eo 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-      #     
-      #     # 3. 停止临时容器（兜底）
-      #     docker stop $CONTAINER_ID >/dev/null 2>&1
-      #     
-      #     # 4. 版本格式统一（确保带v前缀）
-      #     if [[ ! $IMAGE_TS_VERSION =~ ^v ]]; then
-      #       IMAGE_TS_VERSION="v$IMAGE_TS_VERSION"
-      #     fi
-      #     
-      #     # 5. 打印版本信息
-      #     echo "Actual version in image: $IMAGE_TS_VERSION"
-      #     echo "Note: Version comparison is temporarily disabled"
-      #     echo "SUCCESS: Image built successfully with installed Tailscale version"
+      # 验证Tailscale和Derper版本安装情况
+      - name: Verify Tailscale and Derper versions in image
+        id: verify_versions
+        run: |
+          echo "=== Starting version verification ==="
+          # 1. 启动临时容器
+          CONTAINER_ID=$(docker run -d --rm --entrypoint sh derpinchina:latest -c "sleep 30")
+          
+          # 2. 提取镜像内安装的Tailscale版本
+          TS_VERSION=$(docker exec $CONTAINER_ID tailscale --version 2>/dev/null | grep -Eo 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          
+          # 3. 提取镜像内安装的Derper版本
+          DERP_VERSION=$(docker exec $CONTAINER_ID derper --version 2>/dev/null | grep -Eo 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          
+          # 4. 停止临时容器
+          docker stop $CONTAINER_ID >/dev/null 2>&1
+          
+          # 5. 保存版本信息到环境变量
+          echo "TS_VERSION=$TS_VERSION" >> $GITHUB_ENV
+          echo "DERP_VERSION=$DERP_VERSION" >> $GITHUB_ENV
+          
+          # 6. 打印版本信息
+          echo "Installed Tailscale version: $TS_VERSION"
+          echo "Installed Derper version: $DERP_VERSION"
+          
+          # 7. 验证版本格式
+          if [[ -z $TS_VERSION || -z $DERP_VERSION ]]; then
+            echo "ERROR: Failed to retrieve version information!"
+            exit 1
+          else
+            echo "SUCCESS: Version verification completed!"
+          fi
 
-      # 步骤7：打GHCR镜像标签（当日时间标签 + latest标签）
+      # 打GHCR镜像标签（当日时间标签 + latest标签）
       - name: Tag image for GHCR
         run: |
           # 打当日时间标签
@@ -147,13 +157,48 @@ jobs:
           # 打latest标签
           docker tag derpinchina:latest ghcr.io/${{ env.IMAGE_NAME }}:latest
 
-      # 步骤8：推送镜像到GHCR
+      # 推送镜像到GHCR
       - name: Push image to GHCR
         run: |
           docker push ghcr.io/${{ env.IMAGE_NAME }}:${{ env.TAG_DATE }}
           docker push ghcr.io/${{ env.IMAGE_NAME }}:latest
 
-      # 步骤9：登出GHCR（安全最佳实践，清理会话）
+      # 登出GHCR（安全最佳实践，清理会话）
       - name: Logout from GHCR
         if: always()  # 无论前面步骤是否失败，都执行登出
         run: docker logout ghcr.io
+
+      # 构建结果摘要
+      - name: Build summary
+        if: always()  # 无论前面步骤是否失败，都输出摘要
+        run: |
+          echo "========================================"
+          echo "📦 Docker Image Build Summary"
+          echo "========================================"
+          echo "✅ Build completed with status: ${{ job.status }}"
+          echo ""
+          echo "📋 Component Versions:"
+          echo "- Tailscale: ${{ env.TS_VERSION || 'Not available' }}"
+          echo "- Derper: ${{ env.DERP_VERSION || 'Not available' }}"
+          echo ""
+          echo "🐳 Container Information:"
+          echo "- Registry: ghcr.io"
+          echo "- Image Name: ${{ env.IMAGE_NAME }}"
+          echo "- Tags: ${{ env.TAG_DATE }}, latest"
+          echo "- Full Image Path: ghcr.io/${{ env.IMAGE_NAME }}:${{ env.TAG_DATE }}"
+          echo ""
+          echo "📤 Push Status:"
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ Images pushed successfully to GHCR"
+            echo "- Tagged image: ghcr.io/${{ env.IMAGE_NAME }}:${{ env.TAG_DATE }}"
+            echo "- Latest image: ghcr.io/${{ env.IMAGE_NAME }}:latest"
+          else
+            echo "❌ Image push failed or was skipped"
+          fi
+          echo ""
+          echo "📅 Build Details:"
+          echo "- Build ID: ${{ github.run_id }}"
+          echo "- Build URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "- Trigger: ${{ github.event_name }}"
+          echo "- Branch: ${{ github.ref_name }}"
+          echo "========================================"
