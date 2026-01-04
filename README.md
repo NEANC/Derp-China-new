@@ -1,7 +1,7 @@
 # Actions Derp China
 
 > [!NOTE]
-> GitHub Actions 工作流定时在北京时间每周一 00:00 自动构建镜像并推送到 GitHub Packages 中
+> GitHub Actions 工作流定时在北京时间每周一 00:00 自动追踪并在构建镜像后推送到 GitHub Packages 中
 
 本项目使用 GitHub Actions 工作流自动构建 本库与 [lansepeach/Derp-China-new](https://github.com/lansepeach/Derp-China-new) 的镜像，免去本地构建环节。
 
@@ -20,15 +20,19 @@
 
 ---
 
+> [!IMPORTANT]
+> 已使用 Tailscale 版本号作为对应构建镜像的版本号，旧的日期标签镜像已被删除
+
 ## 镜像说明与版本说明
 
 修改了 `Dockerfile` 所使用的系统，用于追踪最新的 Tailscale ，缺点是镜像大小会增加。  
-将 @main 替换为 @latest ，以获取对应 Tailscale 的 derper 版本。
+将 `@main` 替换为 `@latest` ，以获取对应 Tailscale 的 derper 版本。  
+使用环境变量配置版本号，方便构建时指定版本：`docker build --build-arg DERP_VERSION=vx.x.x`
 
-| 镜像名                        | 标签格式               | 基于   | 大小     | 说明                                                                               |
-| ----------------------------- | ---------------------- | ------ | -------- | ---------------------------------------------------------------------------------- |
-| `lansepeach/derpin-china-new` | 构建时的 年月日        | Alpine | ≈ 70 MB  | 基于[lansepeach/Derp-China-new](https://github.com/lansepeach/Derp-China-new) 构建 |
-| `neanc/derpin-china`          | 构建时的 年月日-时间戳 | Debian | ≈ 175 MB | 本库构建，用于实时追踪最新版本的 Tailscale                                         |
+| 镜像名                        | 基于   | 大小     | 说明                                                                               |
+| ----------------------------- | ------ | -------- | ---------------------------------------------------------------------------------- |
+| `lansepeach/derpin-china-new` | Alpine | ≈ 70 MB  | 基于[lansepeach/Derp-China-new](https://github.com/lansepeach/Derp-China-new) 构建 |
+| `neanc/derpin-china`          | Debian | ≈ 175 MB | 本库构建，用于实时追踪最新版本的 Tailscale                                         |
 
 ---
 
@@ -43,7 +47,7 @@
 📌 点击本行展开手动登陆教程
 </summary>
 
-> [!IMPORTANT]
+> [!WARNING]
 > 不建议使用，更推荐使用带密钥的官方脚本安装
 
 #### 1.1 创建 Tailscale 一次性认证 key
@@ -272,7 +276,7 @@ location ^~ / {
 					{
 						"Name": "ALderp",                   // 节点名称，不建议使用中文，没找到对应显示
 						"RegionID": 910,                   // 必须和上面的 RegionID 一致
-            "HostName": "derp.example.com",   // 替换为你的域名
+						"HostName": "derp.example.com",   // 替换为你的域名
 						"DERPPort": 443,                 // DERP 服务端口；使用反代到443可无视
 						"STUNPort": 3478,               // STUN 端口，与 .env 中配置一致
 						// "IPv4": "192.168.1.1",      // VPS公网IP地址，可不配置
@@ -280,7 +284,7 @@ location ^~ / {
 					},
 				],
 			},
-      // 若部署有多个 derper 节点可以继续添加，未正常配置不会被使用，但建议删除以免混淆
+			// 若部署有多个 derper 节点可以继续添加，未正常配置不会被使用，但建议删除以免混淆
 			"920": {
 				"RegionID": 920,
 				"RegionCode": "腾讯云",
@@ -289,7 +293,7 @@ location ^~ / {
 					{
 						"Name": "TXderp",
 						"RegionID": 920,
-            "HostName": "derp.example.com", // 替换为你的域名
+						"HostName": "derp.example.com", // 替换为你的域名
 						"DERPPort": 443, // DERP 服务端口；使用反代到443可无视
 						"STUNPort": 3478, // STUN 端口，与 .env 中配置一致
 					},
@@ -512,5 +516,8 @@ server {
 ## 参考链接
 
 - [Derp-China-new](https://github.com/lansepeach/Derp-China-new)
+- [fredliang/derper](https://github.com/kaaanata/derper-docker)
+- [Tailscale DERP server](https://github.com/tailscale/tailscale/tree/main/cmd/derper#derp)
+- [Tailscale Go Packages](https://pkg.go.dev/tailscale.com@main/cmd/derper/)
 - [部署 Tailscale Derper 自建中继服务器 - 猫猫博客](https://catcat.blog/2025/12/deploy-tailscale-derper)
 - [自建 DERP 服务器提升 Tailscale 连接速度(使用 Nginx 转发) - Jiajun 的技术笔记](https://jiajunhuang.com/articles/2024_11_20-tailscale_derp.md.html)
