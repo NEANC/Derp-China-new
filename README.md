@@ -18,6 +18,8 @@
 
 不过结合 [如何强制 Tailscale 走 Derp 中转](https://linux.do/t/topic/752216) ，倒是可以试试（笑），等个有缘人反馈效果如何。
 
+建议使用 Peer Relay 作为中继方案，详见 [Tailscale Peer Relay 让内网穿透更加稳定！](https://linux.do/t/topic/1330145)，Derp 作为保底。
+
 ---
 
 > [!IMPORTANT]
@@ -310,7 +312,7 @@ location ^~ / {
 ### 6. 验证配置
 
 ```bash
-# 检查网络，会列出所有 Derp 节点的延迟，与当前使用的 Derp 节点
+# 检查网络，会列出所有 Derp 节点的延迟，与当前使用的中转信息
 tailscale netcheck
 # ping指令，仅能 ping Tailscale 网络内的节点
 tailscale ping <设备名称或IP>
