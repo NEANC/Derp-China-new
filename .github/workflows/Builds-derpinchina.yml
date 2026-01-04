@@ -29,66 +29,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Dependencies
-        run: |
-          # 安装依赖
-          sudo apt update && sudo apt install -y curl jq
-          # 验证docker是否已安装（ubuntu-24.04 runner默认带docker）
-          docker --version
-      
-      
-      - name: Define Image Name
-        run: |
-          # 定义镜像名称
-          # 把github.repository_owner转为纯小写，避免大写导致的镜像名称错误
-          REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          echo "REPO_OWNER_LOWER=${REPO_OWNER_LOWER}" >> $GITHUB_ENV
-      
-      - name: Get latest tailscale version
-        run: |
-          TAILSCALE_VERSION=$(curl -s https://api.github.com/repos/tailscale/tailscale/releases/latest | jq -r '.tag_name' | sed 's/^v//')
-          echo "Latest tailscale version: $TAILSCALE_VERSION"
-          echo TAILSCALE_VERSION=$TAILSCALE_VERSION >> $GITHUB_ENV
-      
-      - name: Check if the image exists
-        run: |
-          GHCR_TOKEN=${{ secrets.GITHUB_TOKEN }}
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Bearer $GHCR_TOKEN" \
-            https://ghcr.io/v2/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}/manifests/v${{ env.TAILSCALE_VERSION }})
-          IMAGE_EXISTS=$(if [ $HTTP_CODE -eq 200 ]; then echo "true"; else echo "false"; fi)
-          echo "HTTP code: $HTTP_CODE, Image exists: $IMAGE_EXISTS"
-          echo IMAGE_EXISTS=$IMAGE_EXISTS >> $GITHUB_ENV
-      
-      # 如果镜像存在，停止CI运行
-      - name: Stop if image exists
-        if: env.IMAGE_EXISTS == 'true'
-        run: |
-          echo "❌ 镜像 ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:v${{ env.TAILSCALE_VERSION }} 已存在，终止构建"
-          # 使用非零退出码终止CI
-          exit 1
-
-      - name: Generate Tag with Date and PR Info
-        run: |
-          # 生成包含日期和PR信息的标签(格式：年月日-时间戳或PR编号)
-          # 基础日期标签（格式：年月日，如20260102）
-          BASE_TAG=$(date -u +%Y%m%d)
-
-          # 检查事件类型并生成相应的标签后缀
-          if [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ github.event.action }}" = "closed" ] && [ "${{ github.event.pull_request.merged }}" = "true" ]; then
-            # 对于合并的PR事件，使用版本号+PR编号
-            PR_NUMBER=${{ github.event.pull_request.number }}
-            FINAL_TAG="v${{ env.TAILSCALE_VERSION }}-pr$PR_NUMBER"
-          else
-            # 默认情况（如手动触发、定时任务等），使用tailscale版本，添加'v'前缀与官方一致
-            FINAL_TAG="v${{ env.TAILSCALE_VERSION }}"
-          fi
-          
-          # 组合最终标签
-          FINAL_TAG="$BASE_TAG$TAG_SUFFIX"
-          echo "Generated tag: $FINAL_TAG"
-          echo "TAG_DATE=$FINAL_TAG" >> $GITHUB_ENV
-
       # 登录GHCR（仅推送到GHCR，无需DockerHub）
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -99,25 +39,74 @@ jobs:
 
       - name: Define Repo Owner Lower
         run: |
-          TAILSCALE_VERSION=$(curl -s https://api.github.com/repos/tailscale/tailscale/releases/latest | jq -r '.tag_name')
-          echo "Latest tailscale version: $TAILSCALE_VERSION"
+          # 初始化所有者姓名
+          # 把github.repository_owner转为纯小写，避免大写导致的镜像名称错误
+          REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "REPO_OWNER_LOWER=${REPO_OWNER_LOWER}" >> $GITHUB_ENV
+
+      - name: Get latest Tailscale Version
+        run: |
+          # 获取最新版本（从 GitHub API 获取最新 release 的 tag_name）
+          TAILSCALE_VERSION=$(curl -s https://api.github.com/repos/tailscale/tailscale/releases/latest | jq -r '.tag_name' | sed 's/^v//')
+          echo "Latest Tailscale Version: $TAILSCALE_VERSION"
           echo TAILSCALE_VERSION=$TAILSCALE_VERSION >> $GITHUB_ENV
       
       - name: Check if the Image Exists
         run: |
-          GHCR_TOKEN=${{ secrets.GITHUB_TOKEN }}
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Bearer $GHCR_TOKEN" \
-            https://ghcr.io/v2/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}/manifests/${{ env.TAILSCALE_VERSION }})
-          IMAGE_EXISTS=$(if [ $HTTP_CODE -eq 200 ]; then echo "true"; else echo "false"; fi)
-          echo "HTTP code: $HTTP_CODE, Image exists: $IMAGE_EXISTS"
-          echo IMAGE_EXISTS=$IMAGE_EXISTS >> $GITHUB_ENV
+          # 检查镜像是否存在，精简版
+          IMAGE_URL="ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:v${{ env.TAILSCALE_VERSION }}"
+          
+          # 使用 skopeo 检查镜像是否存在（静默模式，仅判断退出码）
+          if skopeo inspect --creds "user:${{ secrets.GITHUB_TOKEN }}" "docker://${IMAGE_URL}" >/dev/null 2>&1; then
+            IMAGE_EXISTS="true"
+          else
+            IMAGE_EXISTS="false"
+          fi
+          
+          echo "Image tag exists: $IMAGE_EXISTS"
+          echo "IMAGE_EXISTS=$IMAGE_EXISTS" >> "$GITHUB_ENV"
+
+      # 检查镜像是否存在，调试用
+      #- name: Check if the image tag exists
+      #  run: |
+          # 镜像仓库地址
+      #    IMAGE_REPO="ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}"
+      #    TAG_TO_CHECK="v${{ env.TAILSCALE_VERSION }}"
+          
+          # 使用 skopeo 列出镜像仓库的所有标签
+          # --creds 格式：用户名:密码（GitHub 允许用户名任意，token 作为密码即可）
+      #    skopeo list-tags "docker://${IMAGE_REPO}" \
+      #      --creds "github-actions:${{ secrets.GITHUB_TOKEN }}" \
+      #      > tags.json 2>&1
+          
+          # 显示 skopeo 响应内容（用于调试，和原脚本保持一致的调试性）
+      #    echo "Skopeo Response:"
+      #    cat tags.json
+          
+          # 检查 skopeo 执行结果 & 解析标签列表
+      #    if [ $? -ne 0 ] || grep -q "unauthorized" tags.json || grep -q "not found" tags.json; then
+            # skopeo 执行失败（仓库不存在/认证失败/网络问题），判定镜像不存在
+      #      echo "Skopeo 查询失败，镜像仓库或标签不存在"
+      #      IMAGE_EXISTS="false"
+      #    else
+            # 用 jq 解析 skopeo 的 JSON 输出，检查目标标签是否在 Tags 数组中
+            # skopeo list-tags 输出格式：{"Name":"ghcr.io/xxx/xxx","Tags":["v1.0","v1.1"]}
+      #      IMAGE_EXISTS=$(jq -e --arg tag "$TAG_TO_CHECK" \
+      #        '.Tags[] | select(. == $tag)' tags.json > /dev/null 2>&1 && echo "true" || echo "false")
+            
+            # 显示可用标签（调试用）
+      #      echo "Available tags in repo ${IMAGE_REPO}:"
+      #      jq -r '.Tags[]' tags.json 2>/dev/null || echo "无法解析标签列表"
+      #    fi
+          
+      #    echo "Image tag ${TAG_TO_CHECK} exists: ${IMAGE_EXISTS}"
+      #    echo "IMAGE_EXISTS=${IMAGE_EXISTS}" >> $GITHUB_ENV
       
       # 如果镜像存在，停止CI运行
       - name: Stop if image exists
         if: env.IMAGE_EXISTS == 'true'
         run: |
-          echo "❌ 镜像 ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:${{ env.TAILSCALE_VERSION }} 已存在，终止构建"
+          echo "❌ 镜像 ${{ env.IMAGE_NAME }}:v${{ env.TAILSCALE_VERSION }} 已存在，终止构建"
           # 使用非零退出码终止CI
           exit 1
 
@@ -128,10 +117,10 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ github.event.action }}" = "closed" ] && [ "${{ github.event.pull_request.merged }}" = "true" ]; then
             # 对于合并的PR事件，使用版本号+PR编号
             PR_NUMBER=${{ github.event.pull_request.number }}
-            FINAL_TAG="pr$PR_NUMBER"
+            FINAL_TAG="v${{ env.TAILSCALE_VERSION }}-pr$PR_NUMBER"
           else
             # 默认情况（如手动触发、定时任务等），使用tailscale版本
-            FINAL_TAG="${{ env.TAILSCALE_VERSION }}"
+            FINAL_TAG="v${{ env.TAILSCALE_VERSION }}"
           fi
           
           echo "Generated tag: $FINAL_TAG"
@@ -235,8 +224,12 @@ jobs:
           echo "### 📋 组件版本" >> $GITHUB_STEP_SUMMARY
           echo "- **最新 Tailscale 版本**: ${{ env.TAILSCALE_VERSION }}" >> $GITHUB_STEP_SUMMARY
           echo "- **镜像 Tailscale 版本**: ${{ env.TS_VERSION || '不可用' }}" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ env.VERSION_MISMATCH }}" = "true" ]; then
-            echo "⚠️ **Tailscale 版本 存在差异，请检查**" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ env.TS_VERSION }}" ]; then
+            if [ "${{ env.VERSION_MISMATCH }}" = "true" ]; then
+              echo "⚠️ **Tailscale 版本 存在差异，请检查**" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ **Tailscale 版本 已最新**" >> $GITHUB_STEP_SUMMARY
+            fi
           else
             echo "❌ **版本信息获取失败**" >> $GITHUB_STEP_SUMMARY
           fi

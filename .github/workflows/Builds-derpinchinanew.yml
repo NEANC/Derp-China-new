@@ -22,45 +22,6 @@ jobs:
       IMAGE_NAME: lansepeach/derpin-china-new
 
     steps:
-      - name: Install Dependencies
-        run: |
-          # 安装依赖
-          sudo apt update && sudo apt install -y git
-          # 验证docker是否已安装
-          docker --version
-      
-      - name: Define Image Name
-        run: |
-          # 定义镜像名称
-          # 把github.repository_owner转为纯小写，避免大写导致的镜像名称错误
-          REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          echo "IMAGE_NAME=${REPO_OWNER_LOWER}/lansepeach/derpin-china-new" >> $GITHUB_ENV
-          echo "Lowercase image name: ghcr.io/${REPO_OWNER_LOWER}/lansepeach/derpin-china-new"
-
-      - name: Generate Date-Based Tag
-        run: |
-          TAILSCALE_VERSION=$(curl -s https://api.github.com/repos/tailscale/tailscale/releases/latest | jq -r '.tag_name' | sed 's/^v//')
-          echo "Latest tailscale version: $TAILSCALE_VERSION"
-          echo TAILSCALE_VERSION=$TAILSCALE_VERSION >> $GITHUB_ENV
-      
-      - name: Check if the image exists
-        run: |
-          GHCR_TOKEN=${{ secrets.GITHUB_TOKEN }}
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Bearer $GHCR_TOKEN" \
-            https://ghcr.io/v2/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}/manifests/v${{ env.TAILSCALE_VERSION }})
-          IMAGE_EXISTS=$(if [ $HTTP_CODE -eq 200 ]; then echo "true"; else echo "false"; fi)
-          echo "HTTP code: $HTTP_CODE, Image exists: $IMAGE_EXISTS"
-          echo IMAGE_EXISTS=$IMAGE_EXISTS >> $GITHUB_ENV
-      
-      # 如果镜像存在，停止CI运行
-      - name: Stop if image exists
-        if: env.IMAGE_EXISTS == 'true'
-        run: |
-          echo "❌ 镜像 ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:v${{ env.TAILSCALE_VERSION }} 已存在，终止构建"
-          # 使用非零退出码终止CI
-          exit 1
-
       # 登录GHCR
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -160,7 +121,7 @@ jobs:
         run: |
           # 为镜像设置标签
           # 使用tailscale版本作为标签
-          docker tag derpinchina:latest ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:v${{ env.TAILSCALE_VERSION }}
+          docker tag derpinchina:latest ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:${{ env.TAILSCALE_VERSION }}
           # latest
           docker tag derpinchina:latest ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:latest
           # 输出镜像信息
@@ -169,7 +130,7 @@ jobs:
       - name: Push Image
         run: |
           # 推送镜像
-          docker push ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:v${{ env.TAILSCALE_VERSION }}
+          docker push ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:${{ env.TAILSCALE_VERSION }}
           docker push ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:latest
 
       # 登出GHCR
@@ -186,7 +147,7 @@ jobs:
           CONTAINER_ID=$(docker run -d --rm --entrypoint sh derpinchina:latest -c "sleep 30")
           
           # 2. 提取镜像内安装的Tailscale版本
-          TS_VERSION=$(docker exec $CONTAINER_ID tailscale --version 2>/dev/null | grep -Eo 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//')
+          TS_VERSION=$(docker exec $CONTAINER_ID tailscale --version 2>/dev/null | grep -Eo 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1)
           
           # 3. 停止临时容器
           docker stop $CONTAINER_ID >/dev/null 2>&1
@@ -228,8 +189,12 @@ jobs:
           echo "### 📋 版本信息" >> $GITHUB_STEP_SUMMARY
           echo "- **最新 Tailscale 版本**: ${{ env.TAILSCALE_VERSION }}" >> $GITHUB_STEP_SUMMARY
           echo "- **镜像 Tailscale 版本**: ${{ env.TS_VERSION || '不可用' }}" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ env.VERSION_MISMATCH }}" = "true" ]; then
-            echo "⚠️ **Tailscale 版本 存在差异，请检查**" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ env.TS_VERSION }}" ]; then
+            if [ "${{ env.VERSION_MISMATCH }}" = "true" ]; then
+              echo "⚠️ **Tailscale 版本 存在差异，请检查**" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ **Tailscale 版本 已最新**" >> $GITHUB_STEP_SUMMARY
+            fi
           else
             echo "❌ **版本信息获取失败**" >> $GITHUB_STEP_SUMMARY
           fi
