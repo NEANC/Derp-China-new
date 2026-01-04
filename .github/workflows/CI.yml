@@ -38,7 +38,7 @@ jobs:
       
       - name: Check if the image exists
         run: |
-          GHCR_TOKEN=${{ secrets.GITHUB_TOKEN }}
+          GHCR_TOKEN=$(echo ${{ secrets.GITHUB_TOKEN }} | base64)
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "Authorization: Bearer $GHCR_TOKEN" \
             https://ghcr.io/v2/neanc/actions-derp-china/derpin-china/manifests/v${{ env.TAILSCALE_VERSION }})
@@ -46,9 +46,19 @@ jobs:
           echo "HTTP code: $HTTP_CODE, Image exists: $IMAGE_EXISTS"
           echo IMAGE_EXISTS=$IMAGE_EXISTS >> $GITHUB_ENV
       
+          GHCR_TOKEN=$(echo ${{ secrets.GITHUB_TOKEN }} | base64)
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer $GHCR_TOKEN" \
+            https://ghcr.io/v2/${{ github.repository }}/manifests/${{ env.TAILSCALE_VERSION }}
+            )
+          IMAGE_EXISTS2=$(if [ $HTTP_CODE -eq 200 ]; then echo "true"; else echo "false"; fi)
+          echo "HTTP code: $HTTP_CODE, Image exists: $IMAGE_EXISTS2"
+          echo IMAGE_EXISTS2=$IMAGE_EXISTS2 >> $GITHUB_ENV
+
       # 如果镜像存在，停止CI运行
       - name: Stop if image exists
         if: env.IMAGE_EXISTS == 'true'
+        if: env.IMAGE_EXISTS2 == 'true'
         run: |
           echo "❌ 镜像 ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:v${{ env.TAILSCALE_VERSION }} 已存在，终止构建"
           # 使用非零退出码终止CI
