@@ -36,15 +36,14 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-          logout: false
 
-      - name: Get latest tailscale version
+      - name: Define Repo Owner Lower
         run: |
           TAILSCALE_VERSION=$(curl -s https://api.github.com/repos/tailscale/tailscale/releases/latest | jq -r '.tag_name')
           echo "Latest tailscale version: $TAILSCALE_VERSION"
           echo TAILSCALE_VERSION=$TAILSCALE_VERSION >> $GITHUB_ENV
       
-      - name: Check if the image exists
+      - name: Check if the Image Exists
         run: |
           GHCR_TOKEN=${{ secrets.GITHUB_TOKEN }}
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
@@ -61,13 +60,6 @@ jobs:
           echo "❌ 镜像 ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:${{ env.TAILSCALE_VERSION }} 已存在，终止构建"
           # 使用非零退出码终止CI
           exit 1
-      
-      - name: Define Image Name
-        run: |
-          # 定义镜像名称
-          # 把github.repository_owner转为纯小写，避免大写导致的镜像名称错误
-          REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          echo "REPO_OWNER_LOWER=${REPO_OWNER_LOWER}" >> $GITHUB_ENV
 
       - name: Generate Tag
         run: |
@@ -85,9 +77,9 @@ jobs:
           echo "Generated tag: $FINAL_TAG"
           echo "FINAL_TAG=$FINAL_TAG" >> $GITHUB_ENV
 
-      # 构建镜像（临时标签derpinchina:latest）
       - name: Build Docker Image
         run: |
+          # 构建镜像（临时标签derpinchina:latest）
           docker build . \
             -t derpinchina:latest
       
@@ -171,7 +163,7 @@ jobs:
           # 检查是否因镜像存在而终止构建
           if [ "${{ env.IMAGE_EXISTS }}" = "true" ]; then
             echo "❌ Build stopped: 镜像已存在" 
-            echo "镜像 ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:${{ env.TAILSCALE_VERSION }} 已存在，终止构建"
+            echo "镜像 ${{ env.IMAGE_NAME }}:${{ env.TAILSCALE_VERSION }} 已存在，终止构建"
           else
             echo "✅ Build completed with status: ${{ job.status }}"
           fi
