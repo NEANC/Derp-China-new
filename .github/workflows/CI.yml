@@ -32,39 +32,33 @@ jobs:
 
       - name: Get latest tailscale version
         run: |
+          # 获取最新的Tailscale版本
           TAILSCALE_VERSION=$(curl -s https://api.github.com/repos/tailscale/tailscale/releases/latest | jq -r '.tag_name' | sed 's/^v//')
           echo "Latest tailscale version: $TAILSCALE_VERSION"
           echo TAILSCALE_VERSION=$TAILSCALE_VERSION >> $GITHUB_ENV
       
       - name: Check if the image exists
         run: |
-          GHCR_TOKEN=$(echo ${{ secrets.GITHUB_TOKEN }} | base64)
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Bearer $GHCR_TOKEN" \
-            https://ghcr.io/v2/neanc/actions-derp-china/derpin-china/manifests/v${{ env.TAILSCALE_VERSION }})
-          IMAGE_EXISTS=$(if [ $HTTP_CODE -eq 200 ]; then echo "true"; else echo "false"; fi)
-          echo "HTTP code: $HTTP_CODE, Image exists: $IMAGE_EXISTS"
+          # 使用 GitHub Packages REST API 获取包的所有版本
+          curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/users/${{ env.REPO_OWNER_LOWER }}/packages/container/${{ env.IMAGE_NAME }}/versions" > versions.json
+          
+          # 显示版本列表
+          echo "Available versions:"
+          jq -r '.[] | .name' versions.json
+          
+          # 检查是否存在带有指定标签的版本
+          TAG_TO_CHECK="v${{ env.TAILSCALE_VERSION }}"
+          IMAGE_EXISTS=$(jq -e --arg tag "$TAG_TO_CHECK" \
+              '.[] | .metadata.container.tags[] | select(. == $tag)' versions.json > /dev/null && echo "true" || echo "false")
+          
+          echo "Image tag exists: $IMAGE_EXISTS"
           echo IMAGE_EXISTS=$IMAGE_EXISTS >> $GITHUB_ENV
-      
-          GHCR_TOKEN=$(echo ${{ secrets.GITHUB_TOKEN }} | base64)
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Bearer $GHCR_TOKEN" \
-            https://ghcr.io/v2/${{ github.repository }}/manifests/v${{ env.TAILSCALE_VERSION }}
-            )
-          IMAGE_EXISTS2=$(if [ $HTTP_CODE -eq 200 ]; then echo "true"; else echo "false"; fi)
-          echo "HTTP code: $HTTP_CODE, Image exists: $IMAGE_EXISTS2"
-          echo IMAGE_EXISTS2=$IMAGE_EXISTS2 >> $GITHUB_ENV
 
       # 如果镜像存在，停止CI运行
       - name: Stop if image exists
         if: env.IMAGE_EXISTS == 'true'
-        run: |
-          echo "❌ 镜像 ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:v${{ env.TAILSCALE_VERSION }} 已存在，终止构建"
-          # 使用非零退出码终止CI
-          exit 1
-
-      - name: Stop if image exists2
-        if: env.IMAGE_EXISTS2 == 'true'
         run: |
           echo "❌ 镜像 ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:v${{ env.TAILSCALE_VERSION }} 已存在，终止构建"
           # 使用非零退出码终止CI
