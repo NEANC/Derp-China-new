@@ -1,129 +1,55 @@
-name: Docker Image
+name: 测试CI
 
 on:
-  push:
-    branches: [main]
-  schedule:
-    # Runs "every Monday" (see https://crontab.guru)
-    - cron: '0 0 * * MON'
+  # 手动触发
   workflow_dispatch:
 
+# 权限配置：仅授予GHCR推送必需的最小权限
 permissions:
   contents: read
   packages: write
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  build-and-push:
+    runs-on: ubuntu-24.04
+    env:
+      # 镜像名称
+      IMAGE_NAME: derpin-china
 
     steps:
-      - uses: actions/checkout@v4
+      # 检出代码
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Define GitHub Repository Owner Name
-        run: |
-          # 把github.repository_owner转为纯小写，避免大写导致的镜像名称错误
-          REPO_OWNER_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          echo "REPO_OWNER_LOWER=$REPO_OWNER_LOWER" >> $GITHUB_ENV
-
-      - name: Log in to GitHub Registry
-        uses: docker/login-action@v1
+      # 登录GHCR（仅推送到GHCR，无需DockerHub）
+      - name: Login to GHCR
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ env.REPO_OWNER_LOWER }}
+          username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
           logout: false
 
       - name: Get latest tailscale version
         run: |
-          TAILSCALE_VERSION=$(curl -s https://api.github.com/repos/tailscale/tailscale/releases/latest | jq -r '.tag_name')
+          TAILSCALE_VERSION=$(curl -s https://api.github.com/repos/tailscale/tailscale/releases/latest | jq -r '.tag_name' | sed 's/^v//')
           echo "Latest tailscale version: $TAILSCALE_VERSION"
           echo TAILSCALE_VERSION=$TAILSCALE_VERSION >> $GITHUB_ENV
-
+      
       - name: Check if the image exists
         run: |
-          GHCR_TOKEN=$(echo ${{ secrets.GITHUB_TOKEN }} | base64)
+          GHCR_TOKEN=${{ secrets.GITHUB_TOKEN }}
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "Authorization: Bearer $GHCR_TOKEN" \
-            https://ghcr.io/v2/${{ github.repository }}/manifests/${{ env.TAILSCALE_VERSION }}
-            )
+            https://ghcr.io/v2/neanc/actions-derp-china/derpin-china/manifests/v${{ env.TAILSCALE_VERSION }})
           IMAGE_EXISTS=$(if [ $HTTP_CODE -eq 200 ]; then echo "true"; else echo "false"; fi)
           echo "HTTP code: $HTTP_CODE, Image exists: $IMAGE_EXISTS"
           echo IMAGE_EXISTS=$IMAGE_EXISTS >> $GITHUB_ENV
-
-      - name: Set up QEMU
-        if: ${{ env.IMAGE_EXISTS == 'false' || github.event_name != 'schedule' }}
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        if: ${{ env.IMAGE_EXISTS == 'false' || github.event_name != 'schedule' }}
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and push
-        if: ${{ env.IMAGE_EXISTS == 'false' || github.event_name != 'schedule' }}
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/amd64, linux/arm64
-          push: true
-          tags: |
-            ghcr.io/${{ env.REPO_OWNER_LOWER }}/derper:${{ env.TAILSCALE_VERSION }}
-            ghcr.io/${{ env.REPO_OWNER_LOWER }}/derper:latest
-          build-args: |
-            DERP_VERSION=${{ env.TAILSCALE_VERSION }}
       
-      - name: Logout from GHCR
-        if: always()  # 无论前面步骤是否失败，都执行登出
-        run: docker logout ghcr.io
-
-      - name: Generate build summary
-        if: always()  # 无论前面步骤是否失败，都生成构建摘要
+      # 如果镜像存在，停止CI运行
+      - name: Stop if image exists
+        if: env.IMAGE_EXISTS == 'true'
         run: |
-          # 确定构建状态
-          if [ "${{ job.status }}" = "success" ]; then
-            BUILD_STATUS="✅ 成功"
-            BUILD_RESULT="构建完成，镜像已成功推送"
-          elif [ "${{ job.status }}" = "failure" ]; then
-            BUILD_STATUS="❌ 失败"
-            BUILD_RESULT="构建过程中出现错误"
-          else
-            BUILD_STATUS="⚠️ 取消"
-            BUILD_RESULT="构建被取消"
-          fi
-
-          # 确定镜像状态
-          if [ "${{ env.IMAGE_EXISTS }}" = "true" ]; then
-            IMAGE_STATUS="镜像已存在，未重新构建"
-          else
-            if [ "${{ job.status }}" = "success" ]; then
-              IMAGE_STATUS="镜像已成功构建并推送"
-            elif [ "${{ job.status }}" = "failure" ]; then
-              IMAGE_STATUS="镜像构建失败"
-            else
-              IMAGE_STATUS="镜像构建被取消"
-            fi
-          fi
-
-          # 生成构建摘要
-          echo "# 📦 Docker 镜像构建结果" > $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## 📊 构建基本信息" >> $GITHUB_STEP_SUMMARY
-          echo "- **构建状态**: $BUILD_STATUS" >> $GITHUB_STEP_SUMMARY
-          echo "- **构建结果**: $BUILD_RESULT" >> $GITHUB_STEP_SUMMARY
-          echo "- **构建触发方式**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ github.event_name }}" = "push" ]; then
-            echo "- **推送分支**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
-            echo "- **提交哈希**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-          elif [ "${{ github.event_name }}" = "schedule" ]; then
-            echo "- **定时任务**: 每周一自动构建" >> $GITHUB_STEP_SUMMARY
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "- **手动触发**: 由用户手动执行" >> $GITHUB_STEP_SUMMARY
-          fi
-          echo "- **构建时间**: $(date +"%Y-%m-%d %H:%M:%S") UTC" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          echo "## 🐳 镜像信息" >> $GITHUB_STEP_SUMMARY
-          echo "- **镜像名称**: ghcr.io/${{ env.REPO_OWNER_LOWER }}/derper" >> $GITHUB_STEP_SUMMARY
-          echo "- **Tailscale版本**: ${{ env.TAILSCALE_VERSION }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **镜像标签**: ${{ env.TAILSCALE_VERSION }}, latest" >> $GITHUB_STEP_SUMMARY
-          echo "- **镜像状态**: $IMAGE_STATUS" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "❌ 镜像 ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:v${{ env.TAILSCALE_VERSION }} 已存在，终止构建"
+          # 使用非零退出码终止CI
+          exit 1
