@@ -1,1 +1,4 @@
+name: Docker Image
 
+on:
+  workflow_dispatch:
