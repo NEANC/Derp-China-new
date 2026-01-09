@@ -23,7 +23,7 @@
 ---
 
 > [!IMPORTANT]
-> 已使用 Tailscale 版本号作为对应构建镜像的版本号，旧的日期标签镜像已被删除
+> 使用 Tailscale 版本号作为对应构建镜像的版本号，当 Tailscale 更新版本后，在下周一自动更新并推送
 
 ## 镜像说明与版本说明
 
@@ -35,6 +35,8 @@
 | ----------------------------- | ------ | -------- | ---------------------------------------------------------------------------------- |
 | `lansepeach/derpin-china-new` | Alpine | ≈ 70 MB  | 基于[lansepeach/Derp-China-new](https://github.com/lansepeach/Derp-China-new) 构建 |
 | `neanc/derpin-china`          | Debian | ≈ 175 MB | 本库构建，用于实时追踪最新版本的 Tailscale                                         |
+
+Ps. `@main` 不是正式版本，当前自动构建策略不是每周打包，而是有 Tailscale 新版本后才会在下周一打包，所以使用 `@latest` 获取正式稳定版本。
 
 ---
 
@@ -277,12 +279,13 @@ location ^~ / {
 				"RegionName": "ALderp", // 在 tailscale netcheck 显示的全名，支持中文
 				"Nodes": [
 					{
-						"Name": "ALderp",                   // 节点名称，不建议使用中文，没找到对应显示
-						"RegionID": 910,                   // 必须和上面的 RegionID 一致
-						"HostName": "derp.example.com",   // 替换为你的域名
-						"DERPPort": 443,                 // DERP 服务端口；使用反代到443可无视
-						"STUNPort": 3478,               // STUN 端口，与 .env 中配置一致
-						// "IPv4": "192.168.1.1",      // VPS公网IP地址，可不配置
+						"Name": "ALderp",                    // 节点名称，不建议使用中文，没找到对应显示
+						"RegionID": 910,                    // 必须和上面的 RegionID 一致
+						"HostName": "derp.example.com",    // 替换为你的域名
+						"DERPPort": 443,                  // DERP 服务端口；使用反代到443可无视
+						"STUNPort": 3478,                // STUN 端口，与 .env 中配置一致
+						"IPv4": "192.168.1.1",          // VPS公网IP地址，可不配置
+						"IPv6": "2001:db8::1",         // VPS公网IPv6地址，可不配置
 						// "InsecureForTests": true,  // 客户端不校验证书
 					},
 				],
@@ -296,9 +299,11 @@ location ^~ / {
 					{
 						"Name": "TXderp",
 						"RegionID": 920,
-						"HostName": "derp.example.com", // 替换为你的域名
-						"DERPPort": 443, // DERP 服务端口；使用反代到443可无视
-						"STUNPort": 3478, // STUN 端口，与 .env 中配置一致
+						"HostName": "derp.example.com",
+						"DERPPort": 443,
+						"STUNPort": 3478,
+						"IPv4": "192.168.1.1",
+						"IPv6": "2001:db8::1",
 					},
 				],
 			},
@@ -375,67 +380,7 @@ tailscale set --accept-dns=false --netfilter-mode=off
 
 中转默认使用 TCP，对运营商 UDP 丢包可能有奇效
 
-### 8.2.1 Windows
-
-#### 8.2.1.1 激活 Derp 强制中转
-
-需要使用**管理员运行 powershell**
-
-```powershell
-$reg = "HKLM:\SYSTEM\CurrentControlSet\Services\Tailscale"
-$val = "TS_DEBUG_ALWAYS_USE_DERP=true"
-if (Get-ItemProperty -Path $reg -Name Environment -ErrorAction SilentlyContinue) {
-  $cur = Get-ItemPropertyValue -Path $reg -Name Environment
-  if ($cur -notcontains $val) {
-    Set-ItemProperty -Path $reg -Name Environment -Value ($cur + $val)
-  }
-} else {
-  New-ItemProperty -Path $reg -Name Environment -Value $val -PropertyType MultiString
-}
-Restart-Service Tailscale -Force
-```
-
-#### 8.2.1.2 禁用 DERP 强制中转
-
-需要使用**管理员运行 powershell**，脚本的 Restart-Service 时间可能会比较长，耐心等待即可
-
-```powershell
-$reg = "HKLM:\SYSTEM\CurrentControlSet\Services\Tailscale"
-$val = "TS_DEBUG_ALWAYS_USE_DERP=true"
-if (Get-ItemProperty -Path $reg -Name Environment -ErrorAction SilentlyContinue) {
-  $cur = Get-ItemPropertyValue -Path $reg -Name Environment
-  $new = $cur | Where-Object { $_ -ne $val }
-  if ($new.Count -eq 0) {
-    Remove-ItemProperty -Path $reg -Name Environment
-  } else {
-    Set-ItemProperty -Path $reg -Name Environment -Value $new
-  }
-}
-Restart-Service Tailscale -Force
-```
-
-### 8.2.2 Linux
-
-#### 8.2.2.1 激活 Derp 强制中转
-
-```bash
-sudo mkdir -p /etc/systemd/system/tailscaled.service.d
-echo -e "[Service]\nEnvironment=TS_DEBUG_ALWAYS_USE_DERP=true" | sudo tee /etc/systemd/system/tailscaled.service.d/override.conf
-sudo systemctl daemon-reexec
-sudo systemctl daemon-reload
-sudo systemctl restart tailscaled
-```
-
-#### 8.2.2.2 禁用 DERP 强制中转
-
-```bash
-sudo rm -f /etc/systemd/system/tailscaled.service.d/override.conf
-sudo systemctl daemon-reexec
-sudo systemctl daemon-reload
-sudo systemctl restart tailscaled
-```
-
-#### 8.2.2.3 环境变量
+#### 8.2.1 Linux 环境变量
 
 Linux 也可以用 Tailscale [环境变量法](https://linux.do/t/topic/752216/18)
 
