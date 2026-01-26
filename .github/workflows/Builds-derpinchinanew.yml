@@ -104,6 +104,15 @@ jobs:
           # 使用非零退出码终止CI
           exit 1
 
+      - name: Generate Tag
+        run: |
+          # 生成标签
+          # 默认情况（如手动触发、定时任务等），使用tailscale版本，添加'v'前缀与官方一致
+          FINAL_TAG="v${{ env.TAILSCALE_VERSION }}"
+          
+          echo "Generated tag: $FINAL_TAG"
+          echo "FINAL_TAG=$FINAL_TAG" >> $GITHUB_ENV
+
       - name: Clone Derp-China-new repository
         run: |
           # 克隆目标仓库
@@ -121,7 +130,7 @@ jobs:
         run: |
           # 为镜像设置标签
           # 使用tailscale版本作为标签
-          docker tag derpinchina:latest ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:${{ env.TAILSCALE_VERSION }}
+          docker tag derpinchina:latest ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:${{ env.FINAL_TAG }}
           # latest
           docker tag derpinchina:latest ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:latest
           # 输出镜像信息
@@ -130,7 +139,7 @@ jobs:
       - name: Push Image
         run: |
           # 推送镜像
-          docker push ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:${{ env.TAILSCALE_VERSION }}
+          docker push ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:${{ env.FINAL_TAG }}
           docker push ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:latest
 
       # 登出GHCR
@@ -178,7 +187,7 @@ jobs:
           if [ "${{ env.IMAGE_EXISTS }}" = "true" ]; then
             echo "❌ **构建状态**: 已终止" >> $GITHUB_STEP_SUMMARY
             echo "⚠️ **终止原因**: 镜像已存在" >> $GITHUB_STEP_SUMMARY
-            echo "- 镜像地址: ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:${{ env.TAILSCALE_VERSION }}" >> $GITHUB_STEP_SUMMARY
+            echo "- 镜像地址: ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:${{ env.FINAL_TAG }}" >> $GITHUB_STEP_SUMMARY
           elif [ "${{ job.status }}" = "success" ]; then
             echo "✅ **构建状态**: 成功" >> $GITHUB_STEP_SUMMARY
           else
@@ -203,8 +212,8 @@ jobs:
           echo "### 🐳 镜像信息" >> $GITHUB_STEP_SUMMARY
           echo "- **仓库地址**: ghcr.io" >> $GITHUB_STEP_SUMMARY
           echo "- **镜像名称**: ${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **镜像标签**: v${{ env.TAILSCALE_VERSION }}, latest" >> $GITHUB_STEP_SUMMARY
-          echo "- **完整镜像路径**: ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:v${{ env.TAILSCALE_VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **镜像标签**: ${{ env.FINAL_TAG }}, latest" >> $GITHUB_STEP_SUMMARY
+          echo "- **完整镜像路径**: ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:${{ env.FINAL_TAG }}" >> $GITHUB_STEP_SUMMARY
 
           # 构建详情
           echo "### 🔧 构建详情" >> $GITHUB_STEP_SUMMARY
