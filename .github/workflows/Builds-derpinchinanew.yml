@@ -45,56 +45,56 @@ jobs:
           echo "Latest Tailscale Version: $TAILSCALE_VERSION"
           echo TAILSCALE_VERSION=$TAILSCALE_VERSION >> $GITHUB_ENV
       
-      - name: Check if the Image Exists
-        run: |
-          # 检查镜像是否存在，精简版
-          IMAGE_URL="ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:v${{ env.TAILSCALE_VERSION }}"
-          
-          # 使用 skopeo 检查镜像是否存在（静默模式，仅判断退出码）
-          if skopeo inspect --creds "user:${{ secrets.GITHUB_TOKEN }}" "docker://${IMAGE_URL}" >/dev/null 2>&1; then
-            IMAGE_EXISTS="true"
-          else
-            IMAGE_EXISTS="false"
-          fi
-          
-          echo "Image tag exists: $IMAGE_EXISTS"
-          echo "IMAGE_EXISTS=$IMAGE_EXISTS" >> "$GITHUB_ENV"
+      #- name: Check if the Image Exists
+      #  run: |
+      #    # 检查镜像是否存在，精简版
+      #    IMAGE_URL="ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}:v${{ env.TAILSCALE_VERSION }}"
+      #    
+      #    # 使用 skopeo 检查镜像是否存在（静默模式，仅判断退出码）
+      #    if skopeo inspect --creds "user:${{ secrets.GITHUB_TOKEN }}" "docker://${IMAGE_URL}" >/dev/null 2>&1; then
+      #      IMAGE_EXISTS="true"
+      #    else
+      #      IMAGE_EXISTS="false"
+      #    fi
+      #    
+      #    echo "Image tag exists: $IMAGE_EXISTS"
+      #    echo "IMAGE_EXISTS=$IMAGE_EXISTS" >> "$GITHUB_ENV"
 
       # 检查镜像是否存在，调试用
-      #- name: Check if the image tag exists
-      #  run: |
+      - name: Check if the image tag exists
+        run: |
           # 镜像仓库地址
-      #    IMAGE_REPO="ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}"
-      #    TAG_TO_CHECK="v${{ env.TAILSCALE_VERSION }}"
+          IMAGE_REPO="ghcr.io/${{ env.REPO_OWNER_LOWER }}/${{ env.IMAGE_NAME }}"
+          TAG_TO_CHECK="v${{ env.TAILSCALE_VERSION }}"
           
           # 使用 skopeo 列出镜像仓库的所有标签
           # --creds 格式：用户名:密码（GitHub 允许用户名任意，token 作为密码即可）
-      #    skopeo list-tags "docker://${IMAGE_REPO}" \
-      #      --creds "github-actions:${{ secrets.GITHUB_TOKEN }}" \
-      #      > tags.json 2>&1
+          skopeo list-tags "docker://${IMAGE_REPO}" \
+            --creds "github-actions:${{ secrets.GITHUB_TOKEN }}" \
+            > tags.json 2>&1
           
           # 显示 skopeo 响应内容（用于调试，和原脚本保持一致的调试性）
-      #    echo "Skopeo Response:"
-      #    cat tags.json
+          echo "Skopeo Response:"
+          cat tags.json
           
           # 检查 skopeo 执行结果 & 解析标签列表
-      #    if [ $? -ne 0 ] || grep -q "unauthorized" tags.json || grep -q "not found" tags.json; then
+          if [ $? -ne 0 ] || grep -q "unauthorized" tags.json || grep -q "not found" tags.json; then
             # skopeo 执行失败（仓库不存在/认证失败/网络问题），判定镜像不存在
-      #      echo "Skopeo 查询失败，镜像仓库或标签不存在"
-      #      IMAGE_EXISTS="false"
-      #    else
+            echo "Skopeo 查询失败，镜像仓库或标签不存在"
+            IMAGE_EXISTS="false"
+          else
             # 用 jq 解析 skopeo 的 JSON 输出，检查目标标签是否在 Tags 数组中
             # skopeo list-tags 输出格式：{"Name":"ghcr.io/xxx/xxx","Tags":["v1.0","v1.1"]}
-      #      IMAGE_EXISTS=$(jq -e --arg tag "$TAG_TO_CHECK" \
-      #        '.Tags[] | select(. == $tag)' tags.json > /dev/null 2>&1 && echo "true" || echo "false")
+            IMAGE_EXISTS=$(jq -e --arg tag "$TAG_TO_CHECK" \
+              '.Tags[] | select(. == $tag)' tags.json > /dev/null 2>&1 && echo "true" || echo "false")
             
             # 显示可用标签（调试用）
-      #      echo "Available tags in repo ${IMAGE_REPO}:"
-      #      jq -r '.Tags[]' tags.json 2>/dev/null || echo "无法解析标签列表"
-      #    fi
+            echo "Available tags in repo ${IMAGE_REPO}:"
+            jq -r '.Tags[]' tags.json 2>/dev/null || echo "无法解析标签列表"
+          fi
           
-      #    echo "Image tag ${TAG_TO_CHECK} exists: ${IMAGE_EXISTS}"
-      #    echo "IMAGE_EXISTS=${IMAGE_EXISTS}" >> $GITHUB_ENV
+          echo "Image tag ${TAG_TO_CHECK} exists: ${IMAGE_EXISTS}"
+          echo "IMAGE_EXISTS=${IMAGE_EXISTS}" >> $GITHUB_ENV
       
       # 如果镜像存在，停止CI运行
       - name: Stop if image exists
